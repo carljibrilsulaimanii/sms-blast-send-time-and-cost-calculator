@@ -1,0 +1,586 @@
+<title>Text Blast Calculator</title>
+<!--
+  Author:   Jibril Sulaiman, built with Claude
+  Repo:     https://github.com/carljibrilsulaimanii/sms-blast-send-time-and-cost-calculator
+  Deploy:   A single static HTML file. Open it in a browser, or host it anywhere that serves
+            static files. No build step, no server, no API keys.
+  What:     Paste a text message, enter list size and start time (Eastern), and get the
+            segment count, send duration, finish time and estimated cost.
+  Why:      SMS providers rate-limit by segments per second, not texts per second. A text
+            one character over 160, or with one emoji, takes twice as long and costs twice as
+            much. This page makes that visible before a big blast goes out.
+  Config:   The send speeds (the "Sending through" options) and the RATES / CARRIER / LRN
+            values in the script are examples. Replace them with your provider's numbers.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two-panel workbench. Left = message and send settings, right = sticky results readout. */
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --sunken: #f5f7fa;
+  --ink: #152033;
+  --muted: #5a6577;
+  --line: #d6dce6;
+  --accent: #1d56c9;
+  --accent-soft: #e3ebfb;
+  --good: #1c7a4a;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --bad: #b02a22;
+  --bad-soft: #fbe5e3;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1520; --surface: #172030; --sunken: #121a27; --ink: #e6ebf3; --muted: #9aa6b8;
+    --line: #2a3648; --accent: #7fa6ff; --accent-soft: #1d2a45; --good: #5fd09a;
+    --warn: #f0b45a; --warn-soft: #33270f; --bad: #ff8a80; --bad-soft: #3a1c1a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1520; --surface: #172030; --sunken: #121a27; --ink: #e6ebf3; --muted: #9aa6b8;
+  --line: #2a3648; --accent: #7fa6ff; --accent-soft: #1d2a45; --good: #5fd09a;
+  --warn: #f0b45a; --warn-soft: #33270f; --bad: #ff8a80; --bad-soft: #3a1c1a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 48px; }
+header { display: grid; gap: 6px; margin-bottom: 22px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); max-width: 68ch; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; gap: 18px; min-width: 0; }
+.results { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+@media (max-width: 860px) { .results { position: static; } }
+.field { display: grid; gap: 6px; min-width: 0; }
+.label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+textarea, input, select {
+  font: inherit; color: var(--ink); background: var(--sunken); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px; width: 100%; min-width: 0;
+}
+textarea { font-family: var(--font-mono); font-size: 14px; min-height: 150px; resize: vertical; line-height: 1.55; }
+textarea:focus, input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 480px) { .row { grid-template-columns: minmax(0, 1fr); } }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button {
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 5px 12px;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; border-radius: 8px; padding: 8px 14px; }
+button.primary:hover { filter: brightness(1.08); color: var(--surface); }
+.meter { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter b { color: var(--ink); font-weight: 600; font-family: var(--font-mono); }
+.enc { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.enc.gsm { background: var(--accent-soft); color: var(--accent); }
+.enc.ucs { background: var(--warn-soft); color: var(--warn); }
+.segs { display: grid; gap: 5px; }
+.seg { display: grid; grid-template-columns: 74px minmax(0, 1fr) 64px; gap: 10px; align-items: center; font-size: 12px; font-family: var(--font-mono); color: var(--muted); }
+.bar { height: 8px; background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.badchars { display: flex; flex-wrap: wrap; gap: 6px; }
+.badchars span { font-family: var(--font-mono); font-size: 13px; background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 2px 8px; }
+
+.readout { display: grid; gap: 4px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.readout .big { font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 6vw, 46px); line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.readout .sub { color: var(--muted); font-size: 14px; }
+.finish { font-family: var(--font-display); font-weight: 700; font-size: 22px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
+.stats div { display: grid; gap: 2px; min-width: 0; }
+.stats dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.stats dd { margin: 0; font-family: var(--font-mono); font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.timeline { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.timeline div { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; font-variant-numeric: tabular-nums; }
+.timeline .pct { font-family: var(--font-mono); color: var(--muted); }
+.timeline .t { font-family: var(--font-mono); text-align: right; }
+.track { height: 4px; background: var(--sunken); border-radius: 2px; overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--accent); opacity: 0.7; }
+.alerts { display: grid; gap: 8px; }
+.alert { font-size: 13px; border-radius: 8px; padding: 9px 12px; border-left: 3px solid; }
+.alert.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--ink); }
+.alert.bad { background: var(--bad-soft); border-color: var(--bad); color: var(--ink); }
+.alert.ok { background: var(--accent-soft); border-color: var(--good); color: var(--ink); }
+.copyrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.copied { font-size: 13px; color: var(--good); }
+.summary { font-family: var(--font-mono); font-size: 12.5px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+.check input { width: auto; margin: 0; accent-color: var(--accent); }
+.cost { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.cost div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.cost div span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.cost div small { display: block; color: var(--muted); font-size: 12px; }
+.cost .total { font-weight: 600; border-bottom: 0; }
+.cost .total span:last-child { font-family: var(--font-display); font-weight: 800; font-size: 22px; }
+.costhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--sunken); }
+.toggle button { border: 0; background: transparent; border-radius: 999px; padding: 4px 12px; color: var(--muted); }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--surface); font-weight: 600; }
+.toggle button[aria-pressed="true"]:hover { color: var(--surface); }
+.compare { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.compare b { color: var(--ink); font-family: var(--font-mono); font-weight: 500; }
+footer { margin-top: 26px; font-size: 13px; color: var(--muted); display: grid; gap: 8px; max-width: 80ch; }
+footer h2 { font-family: var(--font-display); font-size: 15px; color: var(--ink); margin: 0; }
+footer ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+footer a { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .bar i, .track i { transition: width 0.25s ease; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Text Blast Calculator</h1>
+    <p>Paste the text, enter the list size and start time, and see how long the send takes, when it finishes (Eastern time), and roughly what it costs.</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel" aria-label="Message and send settings">
+      <div class="field">
+        <label class="label" for="msg">Message</label>
+        <textarea id="msg" spellcheck="false">Acme: Your free investing workshop starts tonight at 7PM ET. Save your seat and join here: https://example.com/live Reply STOP to opt out.</textarea>
+        <label class="check" for="mms"><input type="checkbox" id="mms"> Includes an image (MMS)</label>
+        <div class="meter" id="meter"></div>
+        <div class="segs" id="segs"></div>
+        <div id="badwrap" hidden>
+          <p class="hint" id="badtext"></p>
+          <div class="badchars" id="badchars"></div>
+          <div class="chips" style="margin-top:8px">
+            <button type="button" id="fixbtn" hidden>Swap curly quotes, dashes and ellipses</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label class="label" for="count">Number of contacts</label>
+          <input id="count" type="text" inputmode="numeric" value="300,000" autocomplete="off">
+          <div class="chips" id="countchips">
+            <button type="button" data-n="50000">50K</button>
+            <button type="button" data-n="100000">100K</button>
+            <button type="button" data-n="230000">230K</button>
+            <button type="button" data-n="300000">300K</button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="line">Sending through</label>
+          <select id="line">
+            <option value="100" data-bill="sc" data-name="Short code (100 per second)">Short code: 100 per second</option>
+            <option value="100" data-bill="tf" data-name="Toll-free, upgraded (100 per second)">Toll-free, upgraded: 100 per second</option>
+            <option value="3" data-bill="tf" data-name="Toll-free, standard (3 per second)">Toll-free, standard: 3 per second</option>
+            <option value="4.1667" data-bill="sc" data-name="Throttled sequence (250 per minute)">Throttled sequence: 250 per minute</option>
+            <option value="custom" data-bill="sc" data-name="Custom speed">Custom speed</option>
+          </select>
+          <div class="field" id="customwrap" hidden>
+            <label class="label" for="custom">Segments per second</label>
+            <input id="custom" type="number" min="1" step="1" value="200">
+          </div>
+          <p class="hint" id="linehint"></p>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label class="label" for="sdate">Start date (ET)</label>
+          <input id="sdate" type="date">
+        </div>
+        <div class="field">
+          <label class="label" for="stime">Start time (ET)</label>
+          <input id="stime" type="time" step="60">
+          <div class="chips">
+            <button type="button" id="nowbtn">Now</button>
+            <button type="button" data-t="11:00">11 AM</button>
+            <button type="button" data-t="14:00">2 PM</button>
+            <button type="button" data-t="18:00">6 PM</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="newc">Contacts new to your texting platform</label>
+        <input id="newc" type="text" inputmode="numeric" value="0" autocomplete="off">
+        <p class="hint">Many platforms check the line type (cell, landline, VoIP) once for each new contact, at $0.002 each. Leave at 0 if the list has been texted before.</p>
+      </div>
+    </section>
+
+    <section class="panel results" aria-label="Results" aria-live="polite">
+      <div class="readout">
+        <span class="label">Send time</span>
+        <span class="big" id="dur">-</span>
+        <span class="sub">Finishes <span class="finish" id="fin">-</span></span>
+      </div>
+      <dl class="stats">
+        <div><dt>Segments per text</dt><dd id="s-seg">-</dd></div>
+        <div><dt>Total segments</dt><dd id="s-total">-</dd></div>
+        <div><dt>Texts per second</dt><dd id="s-tps">-</dd></div>
+        <div><dt>Starts</dt><dd id="s-start">-</dd></div>
+      </dl>
+      <div>
+        <div class="costhead">
+          <span class="label">Estimated cost</span>
+          <div class="toggle" role="group" aria-label="Pricing" id="billtoggle">
+            <button type="button" data-bill="sc" aria-pressed="true">Short code</button>
+            <button type="button" data-bill="tf" aria-pressed="false">Toll-free</button>
+          </div>
+        </div>
+        <div class="cost" id="cost"></div>
+        <p class="compare" id="compare"></p>
+      </div>
+      <div>
+        <span class="label">Progress</span>
+        <div class="timeline" id="timeline"></div>
+      </div>
+      <div class="alerts" id="alerts"></div>
+      <div class="field">
+        <span class="label">Summary for Slack</span>
+        <pre class="summary" id="summary"></pre>
+        <div class="copyrow">
+          <button type="button" class="primary" id="copybtn">Copy summary</button>
+          <span class="copied" id="copied" hidden>Copied</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <h2>Where the numbers come from</h2>
+    <ul>
+      <li>Short codes send about 100 segments per second by default; faster is a paid upgrade. Standard toll-free numbers send about 3 per second until the provider raises them. Speed counts segments, not texts. <a href="https://www.twilio.com/docs/messaging/guides/market-throughput-overview" target="_blank" rel="noopener">Twilio throughput guide</a></li>
+      <li>Providers usually set the limit for the whole account, not each number. Two blasts running at once share it, so don't add the lines together.</li>
+      <li>One segment holds 160 plain characters, or 153 each once a text runs long. A single emoji or curly quote switches the whole text to Unicode: 70 characters, then 67 each. Carriers bill per segment.</li>
+      <li>The prices on this page are examples. Replace them with the per-segment rates on your provider's usage or billing screen.</li>
+      <li>Carrier fees vary by carrier and usually have no fixed rate on a bill. Divide the total carrier fees by the number of segments they cover to get an average. They can be larger than the provider's own send fee.</li>
+      <li>Costs are before any free allowance on your plan, so the real bill can be slightly lower.</li>
+      <li>Image texts (MMS) count as one message up to 1,600 characters. Image sends may be slower than plain texts; check with your provider before a big image blast.</li>
+      <li>Times are estimates. Real sends can run a little slower when other texts are in the queue.</li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var TZ = "America/New_York";
+  var GSM_BASIC = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+  var GSM_EXT = "^{}\\[~]|€\f";
+  var basic = new Set(Array.from(GSM_BASIC));
+  var ext = new Set(Array.from(GSM_EXT));
+  var SMART = { "‘": "'", "’": "'", "‚": "'", "‛": "'", "“": '"', "”": '"', "„": '"',
+    "–": "-", "—": "-", "…": "...", " ": " ", "•": "-", "′": "'", "″": '"' };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    msg: $("msg"), meter: $("meter"), segs: $("segs"), badwrap: $("badwrap"), badtext: $("badtext"),
+    badchars: $("badchars"), fixbtn: $("fixbtn"), count: $("count"), line: $("line"), custom: $("custom"),
+    customwrap: $("customwrap"), linehint: $("linehint"), sdate: $("sdate"), stime: $("stime"),
+    mms: $("mms"), newc: $("newc")
+  };
+
+  // EXAMPLE rates in US dollars. Replace with your provider's per-segment and per-image prices.
+  var RATES = {
+    sc: { sms: 0.004, mms: 0.015, name: "short code" },
+    tf: { sms: 0.008, mms: 0.025, name: "toll-free" }
+  };
+  // Carrier fees vary by carrier; use your bill's total carrier fees divided by segments.
+  var CARRIER = { sms: 0.004, mms: 0.010 };
+  var LRN = 0.002;
+  var billing = "sc"; // pricing defaults to short code; the toggle switches it to toll-free
+  function setBilling(b) {
+    billing = b;
+    document.querySelectorAll("#billtoggle button").forEach(function (btn) {
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-bill") === b ? "true" : "false");
+    });
+  }
+  function money(n) {
+    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function costFor(bill, units, mms, newContacts) {
+    var r = RATES[bill];
+    var send = units * (mms ? r.mms : r.sms);
+    var carrier = units * (mms ? CARRIER.mms : CARRIER.sms);
+    var lrn = newContacts * LRN;
+    return { send: send, carrier: carrier, lrn: lrn, total: send + carrier + lrn };
+  }
+
+  // Count segments the way carriers do: GSM-7 (160 / 153) unless any character forces UCS-2 (70 / 67).
+  // Escaped GSM characters and emoji surrogate pairs are never split across segments.
+  function analyze(text) {
+    var chars = Array.from(text);
+    var gsm = true, bad = [];
+    chars.forEach(function (c) {
+      if (!basic.has(c) && !ext.has(c)) { gsm = false; if (bad.indexOf(c) < 0) bad.push(c); }
+    });
+    var single = gsm ? 160 : 70, multi = gsm ? 153 : 67;
+    var units = chars.map(function (c) { return gsm ? (ext.has(c) ? 2 : 1) : c.length; });
+    var total = units.reduce(function (a, b) { return a + b; }, 0);
+    var fills = [];
+    if (total === 0) fills = [];
+    else if (total <= single) fills = [total];
+    else {
+      var used = 0;
+      units.forEach(function (u) {
+        if (used + u > multi) { fills.push(used); used = 0; }
+        used += u;
+      });
+      fills.push(used);
+    }
+    return { gsm: gsm, bad: bad, units: total, chars: chars.length, segments: fills.length, fills: fills,
+             limit: fills.length > 1 ? multi : single };
+  }
+
+  function etParts(ms) {
+    var f = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+    var o = {};
+    f.formatToParts(new Date(ms)).forEach(function (p) { if (p.type !== "literal") o[p.type] = parseInt(p.value, 10); });
+    if (o.hour === 24) o.hour = 0;
+    return o;
+  }
+  // Eastern wall-clock time to a UTC timestamp, handling daylight saving.
+  function etToUtc(y, mo, d, h, mi) {
+    var target = Date.UTC(y, mo - 1, d, h, mi);
+    var guess = target;
+    for (var i = 0; i < 3; i++) {
+      var p = etParts(guess);
+      var asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+      guess -= (asUtc - target);
+    }
+    return guess;
+  }
+  var fmtFull = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  var fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+  function sameEtDay(a, b) { var x = etParts(a), y = etParts(b); return x.year === y.year && x.month === y.month && x.day === y.day; }
+  function fmtEt(ms, ref) { return (ref != null && sameEtDay(ms, ref) ? fmtTime.format(new Date(ms)) : fmtFull.format(new Date(ms))) + " ET"; }
+
+  function fmtDur(sec) {
+    sec = Math.ceil(sec);
+    if (sec < 60) return sec + " sec";
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h === 0) return m + " min" + (s ? " " + s + " sec" : "");
+    return h + " hr" + (m ? " " + m + " min" : "");
+  }
+  function num(n) { return Math.round(n).toLocaleString("en-US"); }
+  function parseCount() { var n = parseInt(String(els.count.value).replace(/[^\d]/g, ""), 10); return isNaN(n) ? 0 : n; }
+  function rate() {
+    var v = els.line.value;
+    if (v === "custom") { var c = parseFloat(els.custom.value); return c > 0 ? c : 0; }
+    return parseFloat(v);
+  }
+  function lineName() {
+    var opt = els.line.options[els.line.selectedIndex];
+    if (els.line.value === "custom") return "Custom (" + (rate() || 0) + " per second)";
+    return opt.getAttribute("data-name");
+  }
+  function charLabel(c) {
+    var cp = c.codePointAt(0).toString(16).toUpperCase();
+    var names = { "2018": "left single quote", "2019": "curly apostrophe", "201C": "left double quote", "201D": "right double quote",
+      "2013": "en dash", "2014": "em dash", "2026": "ellipsis", "A0": "non-breaking space", "2022": "bullet" };
+    var shown = c === " " ? "space" : c;
+    return shown + (names[cp] ? "  " + names[cp] : "  U+" + cp);
+  }
+
+  function setDefaultStart() {
+    var now = Date.now() + 15 * 60000;
+    var p = etParts(now);
+    var mins = Math.ceil(p.minute / 15) * 15;
+    var ms = etToUtc(p.year, p.month, p.day, p.hour, 0) + mins * 60000;
+    var q = etParts(ms);
+    els.sdate.value = q.year + "-" + String(q.month).padStart(2, "0") + "-" + String(q.day).padStart(2, "0");
+    els.stime.value = String(q.hour).padStart(2, "0") + ":" + String(q.minute).padStart(2, "0");
+  }
+  function startMs() {
+    var d = els.sdate.value.split("-"), t = els.stime.value.split(":");
+    if (d.length !== 3 || t.length < 2) return null;
+    return etToUtc(+d[0], +d[1], +d[2], +t[0], +t[1]);
+  }
+
+  function render() {
+    var a = analyze(els.msg.value);
+    var mms = els.mms.checked;
+    try { localStorage.setItem("tbc-msg", els.msg.value); } catch (e) {}
+
+    // Message meter
+    els.meter.innerHTML = "";
+    var enc = document.createElement("span");
+    enc.className = "enc " + (a.gsm ? "gsm" : "ucs");
+    enc.textContent = a.gsm ? "Plain text (GSM)" : "Unicode";
+    els.meter.appendChild(enc);
+    [["Characters", num(a.chars)], ["Segments", a.segments], ["Per segment", a.limit]].forEach(function (p) {
+      var s = document.createElement("span"); s.innerHTML = p[0] + " <b>" + p[1] + "</b>"; els.meter.appendChild(s);
+    });
+    if (a.segments === 1 && !mms) {
+      var left = document.createElement("span"); left.innerHTML = "Room left in 1 segment <b>" + (a.limit - a.units) + "</b>";
+      els.meter.appendChild(left);
+    }
+    if (mms) {
+      var mm = document.createElement("span"); mm.innerHTML = "Image text: billed as <b>1</b> message up to 1,600 characters";
+      els.meter.appendChild(mm);
+    }
+
+    els.segs.innerHTML = "";
+    els.segs.hidden = mms;
+    a.fills.slice(0, 8).forEach(function (f, i) {
+      var row = document.createElement("div"); row.className = "seg";
+      row.innerHTML = "<span>Segment " + (i + 1) + "</span><span class=\"bar\"><i style=\"width:" + Math.min(100, f / a.limit * 100) + "%\"></i></span><span>" + f + "/" + a.limit + "</span>";
+      els.segs.appendChild(row);
+    });
+    if (a.fills.length > 8) {
+      var more = document.createElement("div"); more.className = "hint"; more.textContent = "+ " + (a.fills.length - 8) + " more segments";
+      els.segs.appendChild(more);
+    }
+
+    // Characters that force Unicode
+    els.badchars.innerHTML = "";
+    if (a.bad.length && !mms) {
+      els.badwrap.hidden = false;
+      els.badtext.textContent = "These characters switch the whole text to Unicode, which fits only 70 characters per segment:";
+      a.bad.forEach(function (c) { var s = document.createElement("span"); s.textContent = charLabel(c); els.badchars.appendChild(s); });
+      els.fixbtn.hidden = !a.bad.some(function (c) { return SMART[c]; });
+    } else {
+      els.badwrap.hidden = true;
+    }
+
+    // Line hint
+    els.customwrap.hidden = els.line.value !== "custom";
+    var v = els.line.value;
+    els.linehint.textContent = v === "4.1667"
+      ? "Some platforms throttle sequences to 250 per minute, about 4 per second. Use a broadcast or workflow for big lists."
+      : "Shared by every text on the account. Two sends at once split this speed.";
+
+    // Results
+    var count = parseCount(), r = rate(), seg = mms ? 1 : a.segments;
+    var totalSeg = count * seg;
+    var secs = r > 0 ? totalSeg / r : 0;
+    var start = startMs();
+    var finish = start != null ? start + secs * 1000 : null;
+
+    $("dur").textContent = seg && count && r ? fmtDur(secs) : "-";
+    $("fin").textContent = finish != null && seg && count && r ? fmtEt(finish, start) : "-";
+    $("s-seg").textContent = seg || "-";
+    $("s-total").textContent = totalSeg ? num(totalSeg) : "-";
+    $("s-tps").textContent = seg && r ? (r / seg >= 10 ? num(r / seg) : (r / seg).toFixed(1)) : "-";
+    $("s-start").textContent = start != null ? fmtFull.format(new Date(start)) + " ET" : "-";
+
+    // Cost
+    var bill = billing;
+    var newc = Math.min(parseInt(String(els.newc.value).replace(/[^\d]/g, ""), 10) || 0, count);
+    var c = costFor(bill, totalSeg, mms, newc);
+    var unitWord = mms ? "image texts" : "segments";
+    var costBox = $("cost"); costBox.innerHTML = "";
+    if (totalSeg) {
+      [
+        ["Provider send fee", num(totalSeg) + " " + unitWord + " at $" + (mms ? RATES[bill].mms : RATES[bill].sms).toFixed(3) + " (" + RATES[bill].name + ")", c.send],
+        ["Carrier fees", "Estimated at about $" + (mms ? CARRIER.mms : CARRIER.sms) + " each", c.carrier],
+        ["Line-type lookups", num(newc) + " new contacts at $0.002", c.lrn]
+      ].forEach(function (row) {
+        var d = document.createElement("div");
+        d.innerHTML = "<span>" + row[0] + "<small>" + row[1] + "</small></span><span>" + money(row[2]) + "</span>";
+        costBox.appendChild(d);
+      });
+      var t = document.createElement("div"); t.className = "total";
+      t.innerHTML = "<span>Total<small>" + money(count ? c.total / count * 1000 : 0) + " per 1,000 contacts</small></span><span>" + money(c.total) + "</span>";
+      costBox.appendChild(t);
+      var otherBill = bill === "sc" ? "tf" : "sc";
+      var o = costFor(otherBill, totalSeg, mms, newc);
+      var diff = o.total - c.total;
+      $("compare").innerHTML = "The same send on " + RATES[otherBill].name + " would cost about <b>" + money(o.total) + "</b> (" +
+        (diff >= 0 ? money(diff) + " more" : money(-diff) + " less") + ").";
+    } else {
+      $("compare").textContent = "";
+    }
+
+    var tl = $("timeline"); tl.innerHTML = "";
+    if (start != null && seg && count && r) {
+      [25, 50, 75, 100].forEach(function (pct) {
+        var at = start + secs * 1000 * pct / 100;
+        var row = document.createElement("div");
+        row.innerHTML = "<span class=\"pct\">" + pct + "%</span><span class=\"track\"><i style=\"width:" + pct + "%\"></i></span><span class=\"t\">" + num(count * pct / 100) + " texts by " + fmtEt(at, start) + "</span>";
+        tl.appendChild(row);
+      });
+    }
+
+    // Alerts
+    var alerts = [];
+    if (!els.msg.value.trim() && !mms) alerts.push(["warn", "Paste a message to calculate."]);
+    if (seg > 1) alerts.push(["warn", "Each text uses " + seg + " segments, so this send takes " + seg + " times as long and costs " + seg + " times as much as a 1-segment text (" + money(c.total) + " instead of about " + money(costFor(bill, count, false, newc).total) + ")."]);
+    if (mms && a.chars > 1600) alerts.push(["bad", "Image texts hold up to 1,600 characters. This one has " + num(a.chars) + "."]);
+    if (mms) alerts.push(["warn", "Image texts cost about 3 times as much as a 1-segment text and may send slower. Confirm the speed with your provider before a big image blast."]);
+    if (!a.gsm && !mms) alerts.push(["warn", "Unicode is on. Removing the characters listed under the message brings the limit back to 160 characters per segment."]);
+    if (secs > 10 * 3600) alerts.push(["bad", "This runs longer than 10 hours. Twilio holds queued texts for about 10 hours, so the end of the list may fail. Split the list across days or shorten the text."]);
+    if (start != null && seg && count && r) {
+      var sp = etParts(start), fp = etParts(finish);
+      if (sp.hour < 11) alerts.push(["warn", "Starts before 11:00 AM ET, which is before 8:00 AM for Pacific contacts."]);
+      if (fp.hour >= 21 || !sameEtDay(start, finish)) alerts.push(["bad", "Finishes after 9:00 PM ET. Eastern contacts would get texts late at night."]);
+    }
+    if (!alerts.length && seg === 1 && !mms) alerts.push(["ok", "One segment per text. This is the fastest and cheapest a text can be."]);
+    var box = $("alerts"); box.innerHTML = "";
+    alerts.forEach(function (al) { var d = document.createElement("div"); d.className = "alert " + al[0]; d.textContent = al[1]; box.appendChild(d); });
+
+    // Summary
+    var lines = [];
+    if (seg && count && r && start != null) {
+      lines.push("Text blast: " + num(count) + " contacts, " + (mms ? "image text (MMS)" : seg + " segment" + (seg > 1 ? "s" : "") + " each (" + num(totalSeg) + " total)"));
+      lines.push("Sending through: " + lineName());
+      lines.push("Start: " + fmtFull.format(new Date(start)) + " ET");
+      lines.push("Finish: " + fmtFull.format(new Date(finish)) + " ET (" + fmtDur(secs) + ")");
+      lines.push("Estimated cost: " + money(c.total) + " (provider " + money(c.send) + ", carrier fees " + money(c.carrier) + (c.lrn ? ", lookups " + money(c.lrn) : "") + ")");
+    } else {
+      lines.push("Fill in the message, contacts and start time.");
+    }
+    $("summary").textContent = lines.join("\n");
+  }
+
+  // Events
+  ["input", "change"].forEach(function (ev) {
+    [els.msg, els.count, els.line, els.custom, els.sdate, els.stime, els.mms, els.newc].forEach(function (el) { el.addEventListener(ev, render); });
+  });
+  els.count.addEventListener("blur", function () { var n = parseCount(); if (n) els.count.value = num(n); });
+  $("billtoggle").addEventListener("click", function (e) {
+    var b = e.target.getAttribute && e.target.getAttribute("data-bill");
+    if (b) { setBilling(b); render(); }
+  });
+  // Picking a line also moves pricing to match it; the toggle can still override.
+  els.line.addEventListener("change", function () {
+    setBilling(els.line.options[els.line.selectedIndex].getAttribute("data-bill"));
+    render();
+  });
+  els.newc.addEventListener("blur", function () { var n = parseInt(String(els.newc.value).replace(/[^\d]/g, ""), 10) || 0; els.newc.value = num(n); });
+  $("countchips").addEventListener("click", function (e) {
+    var n = e.target.getAttribute && e.target.getAttribute("data-n");
+    if (n) { els.count.value = num(+n); render(); }
+  });
+  document.querySelectorAll("[data-t]").forEach(function (b) {
+    b.addEventListener("click", function () { els.stime.value = b.getAttribute("data-t"); render(); });
+  });
+  $("nowbtn").addEventListener("click", function () {
+    var p = etParts(Date.now());
+    els.sdate.value = p.year + "-" + String(p.month).padStart(2, "0") + "-" + String(p.day).padStart(2, "0");
+    els.stime.value = String(p.hour).padStart(2, "0") + ":" + String(p.minute).padStart(2, "0");
+    render();
+  });
+  els.fixbtn.addEventListener("click", function () {
+    els.msg.value = Array.from(els.msg.value).map(function (c) { return SMART[c] || c; }).join("");
+    render();
+  });
+  $("copybtn").addEventListener("click", function () {
+    var text = $("summary").textContent, done = $("copied");
+    function flash() { done.hidden = false; setTimeout(function () { done.hidden = true; }, 1600); }
+    function fallback() {
+      var r = document.createRange(); r.selectNodeContents($("summary"));
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      done.textContent = "Selected. Press Ctrl+C to copy"; flash();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done.textContent = "Copied"; flash(); }, fallback);
+    } else fallback();
+  });
+
+  try { var saved = localStorage.getItem("tbc-msg"); if (saved) els.msg.value = saved; } catch (e) {}
+  setDefaultStart();
+  render();
+})();
+</script>

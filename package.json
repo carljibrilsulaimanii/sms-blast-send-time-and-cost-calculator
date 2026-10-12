@@ -1,0 +1,10 @@
+{
+  "name": "sms-blast-send-time-and-cost-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-file calculator for SMS segments, blast send time, finish time (Eastern) and cost.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}
