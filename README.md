@@ -1,6 +1,7 @@
 <!--
   README.md -- SMS blast send time and cost calculator
   Author:  Jibril Sulaiman, built with Claude
+  Updated: 2026-11-12 - attachment choice (image or audio) and the audio size check per carrier
   What:    Guide to a single-file calculator that turns a pasted text message, a list size and
            an Eastern start time into segments, send duration, finish time and cost.
   Why:     Texting providers limit speed by segments per second, so message length decides how
@@ -200,8 +201,25 @@ Unicode"*, either remove them or click **Swap curly quotes, dashes and ellipses*
 replace those with plain ones. Emoji can't be swapped; delete them if you want 160
 characters back.
 
-**4c. Image texts.** Tick **Includes an image (MMS)** if the text has a picture. It is then
-billed as one message up to 1,600 characters, at the image price.
+**4c. Attachments.** Pick **Image** or **Audio file (voice note)** under **Attachment** if
+the text carries one. Either way it's billed as one message up to 1,600 characters, at the
+image price. For audio, a box opens:
+- **Check an audio file:** choose the file. It never leaves your computer; the page reads
+  only its size, type and length.
+- **Or enter file size (KB)** if you don't have the file to hand.
+- One card per carrier (AT&T, T-Mobile, Verizon) shows that carrier's size limit for the
+  line in the **Short code | Toll-free** switch, and *"Delivers"* or *"Fails: file too
+  big"*.
+
+| Carrier | Short code | Toll-free |
+|---|---|---|
+| AT&T | 600 KB | 600 KB |
+| T-Mobile | 1,000 KB | 600 KB |
+| Verizon | 1,200 KB (some short codes 1,000 KB) | 600 KB |
+
+Twilio shrinks images to fit but never audio, so a file over a carrier's limit simply
+fails for that carrier's customers. Keep voice notes at 600 KB or less and in MP3; M4A
+(iPhone voice memos) isn't supported, and the page warns if it sees one.
 
 **4d. List size.** Type it in **Number of contacts**, or click **50K**, **100K**, **230K**
 or **300K**.
@@ -224,7 +242,7 @@ many in **Contacts new to your texting platform**. Leave 0 otherwise.
 | **Segments per text**, **Total segments**, **Texts per second** | The math behind the send time |
 | **Estimated cost** | Send fee, carrier fees, lookups, total and cost per 1,000 contacts, plus what the other line would cost |
 | **Progress** | When 25%, 50%, 75% and 100% of the list will have gone out |
-| Warnings | More than 1 segment, Unicode, over 10 hours, starts before 11 AM ET (8 AM Pacific), finishes after 9 PM ET |
+| Warnings | Audio too big for a carrier or in an unsupported format, more than 1 segment, Unicode, over 10 hours, starts before 11 AM ET (8 AM Pacific), finishes after 9 PM ET |
 
 **4i. Share the plan.** Click **Copy summary** and paste it into your team chat. It lists the
 contacts, segments, line, start, finish and estimated cost.
@@ -273,6 +291,7 @@ out of [`index.html`](index.html), so it always tests the current page. Success 
 | Real send ran much slower than the page said | Another blast or sequence was running on the same account, or the sequence throttle applied | Pick the right line in Step 4e; don't overlap blasts |
 | Cost far off from the bill | Example prices still in the file, or a free allowance on your plan | Step 2b |
 | **Copy summary** says *"Selected. Press Ctrl+C to copy"* | The browser blocked clipboard access | Press **Ctrl+C**; the text is already selected |
+| An audio text reached some people and not others | The file was over one carrier's limit (Twilio error 11751) | Step 4c: check the file and keep it at 600 KB or less |
 | The message box keeps an old message | The page remembers your last message in this browser | Clear the box; nothing is stored anywhere else |
 
 ## Limits
@@ -282,14 +301,17 @@ out of [`index.html`](index.html), so it always tests the current page. Success 
 - Providers usually hold queued texts for about 10 hours. A send longer than that can lose
   the end of the list; the page warns you.
 - Costs are before any free allowance on your plan.
-- Image (MMS) speed may be lower than plain text speed; the page uses the same speed for
-  both.
+- Image and audio (MMS) speed may be lower than plain text speed; the page uses the same
+  speed for both.
+- The audio size limits are Twilio's published numbers. Other providers can differ; edit
+  `AUDIO_LIMITS` in [`index.html`](index.html) to match yours.
 - Start and finish times are always US Eastern.
 
 ## Security
 
 - The page makes no network calls except loading fonts from Google Fonts.
 - No keys, tokens or contact data. The only thing saved is your last message, in your own
-  browser's local storage.
+  browser's local storage. An audio file you check is read in the browser and never
+  uploaded.
 
 Built by [Jibril Sulaiman](https://github.com/carljibrilsulaimanii).
